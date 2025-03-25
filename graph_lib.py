@@ -1,6 +1,7 @@
 import random
 import networkx as nx
 import matplotlib.pyplot as plt
+import heapq
 from collections import defaultdict
 
 
@@ -532,3 +533,272 @@ def save_graph_representations(graph, out_filename):
         for row in graph.to_incidence_matrix():
             f.write(" ".join(map(str, row)) + "\n")
         f.write("\n")
+
+class WeightedGraph(Graph):
+    def __init__(self, n):
+        super().__init__(n)
+        self.weights = {}  
+
+    def add_edge(self, u, v, weight=1):
+        super().add_edge(u, v)
+        edge = (min(u, v), max(u, v))
+        self.weights[edge] = weight
+
+    def randomize_weights(self, min_weight=1, max_weight=10):
+        """Przypisz losowe wagi wszystkim istniejącym krawędziom"""
+        for edge in self.edges:
+            self.weights[edge] = random.randint(min_weight, max_weight)
+
+    def visualize_weighted(self):
+        """Wizualizacja grafu z wagami krawędzi"""
+        G = nx.Graph()
+        G.add_nodes_from(range(1, self.n + 1))
+        for (u, v), weight in self.weights.items():
+            G.add_edge(u, v, weight=weight)
+        
+        pos = nx.circular_layout(G)
+        plt.figure(figsize=(8, 8))
+        nx.draw(G, pos, with_labels=True, node_size=500, node_color="lightblue")
+        
+        edge_labels = nx.get_edge_attributes(G, 'weight')
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+        
+        plt.title("Graph with edge weights")
+        plt.show()
+
+    def to_adjacency_matrix(self):
+        """Macierz sąsiedztwa z wagami (0 oznacza brak krawędzi)"""
+        mat = [[0] * self.n for _ in range(self.n)]
+        for (u, v), weight in self.weights.items():
+            mat[u - 1][v - 1] = weight
+            mat[v - 1][u - 1] = weight
+        return mat
+
+    def save_weighted_graph(self, filename):
+        """Zapisanie grafu do pliku"""
+        with open(filename, 'w') as f:
+            for (u, v), weight in self.weights.items():
+                f.write(f"{u} {v} {weight}\n")
+
+    @staticmethod
+    def load_weighted_graph(filename):
+        """Wczytanie grau z pliku"""
+        with open(filename, 'r') as f:
+            edges = []
+            max_vertex = 0
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 3:
+                    u, v, weight = map(int, parts)
+                    edges.append((u, v, weight))
+                    max_vertex = max(max_vertex, u, v)
+            
+            g = WeightedGraph(max_vertex)
+            for u, v, weight in edges:
+                g.add_edge(u, v, weight)
+            return g
+
+    @staticmethod
+    def random_connected_weighted_graph(n, p=0.5, min_weight=1, max_weight=10):
+        """
+        Generuje spójny graf losowy z wagami krawędzi
+        n - liczba wierzchołków
+        p - prawdopodobieństwo istnienia krawędzi (dla zapewnienia spójności najpierw generowane jest drzewo)
+        min_weight, max_weight - zakres wag
+        """
+        g = WeightedGraph(n)
+        vertices = list(range(1, n + 1))
+        random.shuffle(vertices)
+        
+        for i in range(n - 1):
+            weight = random.randint(min_weight, max_weight)
+            g.add_edge(vertices[i], vertices[i + 1], weight)
+        
+        for i in range(1, n + 1):
+            for j in range(i + 1, n + 1):
+                if (i, j) not in g.edges and random.random() < p:
+                    weight = random.randint(min_weight, max_weight)
+                    g.add_edge(i, j, weight)
+        
+        return g
+    
+    def dijkstra(self, start):
+        """
+        Algorytm Dijkstry znajdowania najkrótszych ścieżek od zadanego wierzchołka.
+        Zwraca słownik odległości i słownik poprzedników.
+        """
+        distances = {v: float('inf') for v in range(1, self.n + 1)}
+        distances[start] = 0
+        predecessors = {v: None for v in range(1, self.n + 1)}
+        
+        priority_queue = []
+        heapq.heappush(priority_queue, (0, start))
+        
+        visited = set()
+        
+        while priority_queue:
+            current_dist, current_vertex = heapq.heappop(priority_queue)
+            
+            if current_vertex in visited:
+                continue
+                
+            visited.add(current_vertex)
+            
+            for neighbor in range(1, self.n + 1):
+                edge = (min(current_vertex, neighbor), max(current_vertex, neighbor))
+                if edge in self.weights:
+                    weight = self.weights[edge]
+                    distance = current_dist + weight
+                    
+                    if distance < distances[neighbor]:
+                        distances[neighbor] = distance
+                        predecessors[neighbor] = current_vertex
+                        heapq.heappush(priority_queue, (distance, neighbor))
+        
+        return distances, predecessors
+
+    def get_shortest_paths(self, start):
+        """
+        Zwraca sformatowany wynik najkrótszych ścieżek od wierzchołka startowego.
+        """
+        distances, predecessors = self.dijkstra(start)
+        
+        result = []
+        result.append(f"START : s = {start}")
+        
+        for vertex in range(1, self.n + 1):
+            if vertex == start:
+                path = [start]
+            else:
+                path = []
+                current = vertex
+                while current is not None:
+                    path.append(current)
+                    current = predecessors[current]
+                path.reverse()
+            
+            distance = distances[vertex]
+            result.append(f"d ({vertex}) = {distance} ==> [{' - '.join(map(str, path))}]")
+        
+        return result
+
+    def compute_distance_matrix(self):
+        """
+        Oblicza macierz odległości między wszystkimi parami wierzchołków.
+        Zwraca macierz n x n, gdzie n to liczba wierzchołków.
+        """
+        distance_matrix = []
+        
+        for start in range(1, self.n + 1):
+            distances, _ = self.dijkstra(start)
+            row = [distances[end] for end in range(1, self.n + 1)]
+            distance_matrix.append(row)
+        
+        return distance_matrix
+
+    def print_distance_matrix(self):
+        """
+        Wyświetla macierz odległości 
+        """
+        distance_matrix = self.compute_distance_matrix()
+        
+        for row in distance_matrix:
+            print(" ".join(f"{val:3}" for val in row))
+
+    def find_graph_center(self):
+        """
+        Znajduje centrum grafu - wierzchołek o minimalnej sumie odległości do innych wierzchołków.
+        Zwraca krotkę (numer_wierzchołka, suma_odległości)
+        """
+        distance_matrix = self.compute_distance_matrix()
+        sums = [sum(row) for row in distance_matrix]
+        min_sum = min(sums)
+        center = sums.index(min_sum) + 1 
+        return center, min_sum
+
+    def find_minimax_center(self):
+        """
+        Znajduje centrum minimax - wierzchołek o minimalnej maksymalnej odległości do innych wierzchołków.
+        Zwraca krotkę (numer_wierzchołka, maksymalna_odległość)
+        """
+        distance_matrix = self.compute_distance_matrix()
+        max_distances = [max(row) for row in distance_matrix]
+        min_max = min(max_distances)
+        center = max_distances.index(min_max) + 1 
+        return center, min_max
+    
+    def prim_mst(self):
+        """
+        Znajduje minimalne drzewo rozpinające (MST) za pomocą algorytmu Prima.
+        Zwraca obiekt WeightedGraph reprezentujący MST.
+        """
+        if self.n == 0:
+            return WeightedGraph(0)
+
+        mst = WeightedGraph(self.n)
+        visited = set()
+        start_node = 1
+        visited.add(start_node)
+        edges = []
+        
+        for neighbor in range(1, self.n + 1):
+            edge = (min(start_node, neighbor), max(start_node, neighbor))
+            if edge in self.weights:
+                heapq.heappush(edges, (self.weights[edge], edge))
+
+        while len(visited) < self.n and edges:
+            weight, (u, v) = heapq.heappop(edges)
+            
+            if u in visited and v in visited:
+                continue
+                
+            new_node = v if u in visited else u
+            mst.add_edge(u, v, weight)
+            visited.add(new_node)
+            
+            for neighbor in range(1, self.n + 1):
+                edge = (min(new_node, neighbor), max(new_node, neighbor))
+                if edge in self.weights and neighbor not in visited:
+                    heapq.heappush(edges, (self.weights[edge], edge))
+
+        return mst
+
+    def visualize_mst(self):
+        """
+        Wizualizuje graf i jego minimalne drzewo rozpinające.
+        """
+        mst = self.prim_mst()
+        
+        G_original = nx.Graph()
+        G_mst = nx.Graph()
+        
+        for v in range(1, self.n + 1):
+            G_original.add_node(v)
+            G_mst.add_node(v)
+            
+        for (u, v), weight in self.weights.items():
+            G_original.add_edge(u, v, weight=weight)
+            
+        for (u, v), weight in mst.weights.items():
+            G_mst.add_edge(u, v, weight=weight)
+        
+        plt.figure(figsize=(12, 6))
+        
+        pos = nx.circular_layout(G_original)
+        
+        plt.subplot(121)
+        nx.draw(G_original, pos, with_labels=True, node_color='lightblue', 
+                node_size=500, edge_color='gray')
+        edge_labels = nx.get_edge_attributes(G_original, 'weight')
+        nx.draw_networkx_edge_labels(G_original, pos, edge_labels=edge_labels)
+        plt.title("Oryginalny graf z wagami")
+        
+        plt.subplot(122)
+        nx.draw(G_mst, pos, with_labels=True, node_color='lightgreen', 
+                node_size=500, edge_color='green', width=2)
+        mst_edge_labels = nx.get_edge_attributes(G_mst, 'weight')
+        nx.draw_networkx_edge_labels(G_mst, pos, edge_labels=mst_edge_labels)
+        plt.title("Minimalne drzewo rozpinające (MST)")
+        
+        plt.tight_layout()
+        plt.show()
