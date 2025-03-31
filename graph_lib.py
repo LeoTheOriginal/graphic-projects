@@ -302,7 +302,7 @@ class Graph:
     def find_euler_cycle_fleury(self):
         """
         Znajduje i zwraca cykl Eulera w grafie eulerowskim (spójnym, wszystkie stopnie parzyste),
-        korzystając z idei algorytmu Fleury’ego.
+        korzystając z idei algorytmu Fleury'ego.
         Zwraca listę wierzchołków w kolejności przechodzenia cyklu.
         """
         adj = defaultdict(set)
@@ -659,12 +659,17 @@ class WeightedGraph(Graph):
 
     def get_shortest_paths(self, start):
         """
-        Zwraca sformatowany wynik najkrótszych ścieżek od wierzchołka startowego.
+        Returns formatted shortest paths from start vertex
         """
-        distances, predecessors = self.dijkstra(start)
+        print("Computing shortest paths...")
+        distances, predecessors, has_negative_cycle = self.bellman_ford(start)
+        print("Path reconstruction...")
         
         result = []
         result.append(f"START : s = {start}")
+        
+        if has_negative_cycle:
+            result.append("UWAGA: Wykryto cykl o ujemnej sumie wag!")
         
         for vertex in range(1, self.n + 1):
             if vertex == start:
@@ -672,9 +677,15 @@ class WeightedGraph(Graph):
             else:
                 path = []
                 current = vertex
-                while current is not None:
+                visited = set()  # to detect cycles
+                
+                while current is not None and current not in visited:
                     path.append(current)
+                    visited.add(current)
                     current = predecessors[current]
+                
+                if current is not None:  # if we hit a cycle
+                    path.append("...")  # indicate infinite path
                 path.reverse()
             
             distance = distances[vertex]
@@ -802,3 +813,480 @@ class WeightedGraph(Graph):
         
         plt.tight_layout()
         plt.show()
+
+    def bellman_ford(self, start):
+        """
+        Implements Bellman-Ford algorithm to find shortest paths from start vertex
+        Returns (distances, predecessors, has_negative_cycle)
+        """
+        # Initialize distances and predecessors
+        distances = {v: float('inf') for v in range(1, self.n + 1)}
+        distances[start] = 0
+        predecessors = {v: None for v in range(1, self.n + 1)}
+        
+        # Create adjacency list for faster edge access
+        adj_list = self.to_adjacency_list()
+        
+        # Relax edges n-1 times
+        for i in range(self.n - 1):
+            # Only process vertices that were updated in previous iteration
+            updated = False
+            for u in range(1, self.n + 1):
+                if distances[u] == float('inf'):
+                    continue
+                    
+                for v in adj_list[u]:
+                    weight = self.weights[(u, v)]
+                    if distances[u] + weight < distances[v]:
+                        distances[v] = distances[u] + weight
+                        predecessors[v] = u
+                        updated = True
+            
+            # If no updates in this iteration, we can stop early
+            if not updated:
+                break
+        
+        # Check for negative cycles
+        has_negative_cycle = False
+        for u in range(1, self.n + 1):
+            if distances[u] == float('inf'):
+                continue
+            for v in adj_list[u]:
+                weight = self.weights[(u, v)]
+                if distances[u] + weight < distances[v]:
+                    has_negative_cycle = True
+                    break
+            if has_negative_cycle:
+                break
+        
+        return distances, predecessors, has_negative_cycle
+
+    def get_shortest_paths(self, start):
+        """
+        Returns formatted shortest paths from start vertex
+        """
+        print("Computing shortest paths...")
+        distances, predecessors, has_negative_cycle = self.bellman_ford(start)
+        print("Path reconstruction...")
+        
+        result = []
+        result.append(f"START : s = {start}")
+        
+        if has_negative_cycle:
+            result.append("UWAGA: Wykryto cykl o ujemnej sumie wag!")
+        
+        for vertex in range(1, self.n + 1):
+            if vertex == start:
+                path = [start]
+            else:
+                path = []
+                current = vertex
+                visited = set()  # to detect cycles
+                
+                while current is not None and current not in visited:
+                    path.append(current)
+                    visited.add(current)
+                    current = predecessors[current]
+                
+                if current is not None:  # if we hit a cycle
+                    path.append("...")  # indicate infinite path
+                path.reverse()
+            
+            distance = distances[vertex]
+            result.append(f"d ({vertex}) = {distance} ==> [{' - '.join(map(str, path))}]")
+        
+        return result
+
+class DirectedGraph:
+    def __init__(self, n):
+        self.n = n
+        self.edges = set()  # edges are now tuples (u, v) where u -> v
+
+    def add_edge(self, u, v):
+        if u == v:
+            return
+        self.edges.add((u, v))
+
+    @staticmethod
+    def random_digraph(n, p):
+        """
+        Generates a random strongly connected digraph from G(n, p) ensemble
+        n: number of vertices
+        p: probability of edge existence
+        """
+        g = DirectedGraph(n)
+        
+        # First, create a cycle to ensure strong connectivity
+        for i in range(1, n):
+            g.add_edge(i, i + 1)
+        g.add_edge(n, 1)  # Close the cycle
+        
+        # Then add random edges with probability p
+        for u in range(1, n + 1):
+            for v in range(1, n + 1):
+                if u != v and random.random() < p:
+                    g.add_edge(u, v)
+        
+        return g
+
+    def to_adjacency_matrix(self):
+        mat = [[0] * self.n for _ in range(self.n)]
+        for (u, v) in self.edges:
+            mat[u - 1][v - 1] = 1
+        return mat
+
+    def to_adjacency_list(self):
+        adj_list = {i: [] for i in range(1, self.n + 1)}
+        for (u, v) in self.edges:
+            adj_list[u].append(v)
+        for key in adj_list:
+            adj_list[key].sort()
+        return adj_list
+
+    def visualize(self):
+        G = nx.DiGraph()
+        G.add_nodes_from(range(1, self.n + 1))
+        G.add_edges_from(self.edges)
+        pos = nx.circular_layout(G)
+        plt.figure(figsize=(6, 6))
+        nx.draw(G, pos, with_labels=True, node_size=500, node_color="lightblue", arrows=True)
+        plt.axis('equal')
+        plt.title("Directed Graph")
+        plt.show()
+
+    def get_degrees(self):
+        """
+        Returns in-degrees and out-degrees for each vertex
+        """
+        in_degrees = {i: 0 for i in range(1, self.n + 1)}
+        out_degrees = {i: 0 for i in range(1, self.n + 1)}
+        
+        for (u, v) in self.edges:
+            out_degrees[u] += 1
+            in_degrees[v] += 1
+            
+        return in_degrees, out_degrees
+
+    def save_digraph(self, filename):
+        """
+        Saves the digraph to a file
+        """
+        with open(filename, 'w') as f:
+            f.write(f"{self.n}\n")
+            for (u, v) in sorted(self.edges):
+                f.write(f"{u} {v}\n")
+
+    @staticmethod
+    def load_digraph(filename):
+        """
+        Loads a digraph from a file
+        """
+        with open(filename, 'r') as f:
+            n = int(f.readline().strip())
+            g = DirectedGraph(n)
+            for line in f:
+                u, v = map(int, line.strip().split())
+                g.add_edge(u, v)
+        return g
+
+    def get_reverse_graph(self):
+        """
+        Returns the reverse of the current digraph (all edges reversed)
+        """
+        reverse = DirectedGraph(self.n)
+        for (u, v) in self.edges:
+            reverse.add_edge(v, u)
+        return reverse
+
+    def dfs_finish_times(self, vertex, visited, finish_times):
+        """
+        DFS to compute finish times for Kosaraju's algorithm
+        """
+        visited[vertex] = True
+        for (u, v) in self.edges:
+            if u == vertex and not visited[v]:
+                self.dfs_finish_times(v, visited, finish_times)
+        finish_times.append(vertex)
+
+    def dfs_scc(self, vertex, visited, current_scc):
+        """
+        DFS to find vertices in current SCC
+        """
+        visited[vertex] = True
+        current_scc.append(vertex)
+        for (u, v) in self.edges:
+            if u == vertex and not visited[v]:
+                self.dfs_scc(v, visited, current_scc)
+
+    def kosaraju_scc(self):
+        """
+        Implements Kosaraju's algorithm to find strongly connected components
+        Returns a list of lists, where each inner list contains vertices of one SCC
+        """
+        # Step 1: Compute finish times using DFS
+        visited = {i: False for i in range(1, self.n + 1)}
+        finish_times = []
+        
+        for vertex in range(1, self.n + 1):
+            if not visited[vertex]:
+                self.dfs_finish_times(vertex, visited, finish_times)
+        
+        # Step 2: Get reverse graph
+        reverse_graph = self.get_reverse_graph()
+        
+        # Step 3: Process vertices in decreasing order of finish times
+        visited = {i: False for i in range(1, self.n + 1)}
+        sccs = []
+        
+        for vertex in reversed(finish_times):
+            if not visited[vertex]:
+                current_scc = []
+                reverse_graph.dfs_scc(vertex, visited, current_scc)
+                sccs.append(current_scc)
+        
+        return sccs
+
+    def is_strongly_connected(self):
+        """
+        Sprawdza, czy digraf jest silnie spójny
+        """
+        sccs = self.kosaraju_scc()
+        return len(sccs) == 1
+
+class WeightedDirectedGraph(DirectedGraph):
+    def __init__(self, n):
+        super().__init__(n)
+        self.weights = {}  # wagi są przechowywane jako (u, v) -> waga
+
+    def add_edge(self, u, v, weight=1):
+        super().add_edge(u, v)
+        self.weights[(u, v)] = weight
+
+    def visualize_weighted(self):
+        """
+        Wizualizuje ważony digraf z wagami krawędzi
+        """
+        G = nx.DiGraph()
+        G.add_nodes_from(range(1, self.n + 1))
+        for (u, v), weight in self.weights.items():
+            G.add_edge(u, v, weight=weight)
+        
+        pos = nx.circular_layout(G)
+        plt.figure(figsize=(8, 8))
+        nx.draw(G, pos, with_labels=True, node_size=500, node_color="lightblue", arrows=True)
+        
+        edge_labels = nx.get_edge_attributes(G, 'weight')
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+        
+        plt.title("Ważony Digraf")
+        plt.show()
+
+    def randomize_weights(self, min_weight=-5, max_weight=10):
+        """
+        Przypisuje losowe wagi do wszystkich krawędzi
+        """
+        for edge in self.edges:
+            self.weights[edge] = random.randint(min_weight, max_weight)
+
+    def bellman_ford(self, start):
+        """
+        Implementuje algorytm Bellmana-Forda do znajdowania najkrótszych ścieżek od wierzchołka startowego
+        Zwraca (odległości, poprzednicy, czy_występuje_ujemny_cykl)
+        """
+        # Inicjalizacja odległości i poprzedników
+        distances = {v: float('inf') for v in range(1, self.n + 1)}
+        distances[start] = 0
+        predecessors = {v: None for v in range(1, self.n + 1)}
+        
+        # Tworzenie listy sąsiedztwa dla szybszego dostępu do krawędzi
+        adj_list = self.to_adjacency_list()
+        
+        # Relaksacja krawędzi n-1 razy
+        for i in range(self.n - 1):
+            # Przetwarzamy tylko wierzchołki zaktualizowane w poprzedniej iteracji
+            updated = False
+            for u in range(1, self.n + 1):
+                if distances[u] == float('inf'):
+                    continue
+                    
+                for v in adj_list[u]:
+                    weight = self.weights[(u, v)]
+                    if distances[u] + weight < distances[v]:
+                        distances[v] = distances[u] + weight
+                        predecessors[v] = u
+                        updated = True
+            
+            # Jeśli nie było aktualizacji w tej iteracji, możemy zakończyć wcześniej
+            if not updated:
+                break
+        
+        # Sprawdzanie ujemnych cykli
+        has_negative_cycle = False
+        for u in range(1, self.n + 1):
+            if distances[u] == float('inf'):
+                continue
+            for v in adj_list[u]:
+                weight = self.weights[(u, v)]
+                if distances[u] + weight < distances[v]:
+                    has_negative_cycle = True
+                    break
+            if has_negative_cycle:
+                break
+        
+        return distances, predecessors, has_negative_cycle
+
+    def get_shortest_paths(self, start):
+        """
+        Zwraca sformatowane najkrótsze ścieżki od wierzchołka startowego
+        """
+        print("Obliczanie najkrótszych ścieżek...")
+        distances, predecessors, has_negative_cycle = self.bellman_ford(start)
+        print("Rekonstrukcja ścieżek...")
+        
+        result = []
+        result.append(f"START : s = {start}")
+        
+        if has_negative_cycle:
+            result.append("UWAGA: Wykryto cykl o ujemnej sumie wag!")
+        
+        for vertex in range(1, self.n + 1):
+            if vertex == start:
+                path = [start]
+            else:
+                path = []
+                current = vertex
+                visited = set()  # do wykrywania cykli
+                
+                while current is not None and current not in visited:
+                    path.append(current)
+                    visited.add(current)
+                    current = predecessors[current]
+                
+                if current is not None:  # jeśli trafiliśmy na cykl
+                    path.append("...")  # oznaczenie nieskończonej ścieżki
+                path.reverse()
+            
+            distance = distances[vertex]
+            result.append(f"d ({vertex}) = {distance} ==> [{' - '.join(map(str, path))}]")
+        
+        return result
+
+    @staticmethod
+    def random_weighted_digraph(n, p=0.4, min_weight=-5, max_weight=10):
+        """
+        Generuje losowy silnie spójny ważony digraf z wagami z zakresu [-5, 10]
+        """
+        # Najpierw tworzymy silnie spójny digraf
+        g = WeightedDirectedGraph(n)
+        
+        # Tworzymy cykl zapewniający silną spójność
+        for i in range(1, n):
+            g.add_edge(i, i + 1, random.randint(min_weight, max_weight))
+        g.add_edge(n, 1, random.randint(min_weight, max_weight))
+        
+        # Dodajemy losowe krawędzie z wagami z zadanego zakresu
+        for u in range(1, n + 1):
+            for v in range(1, n + 1):
+                if u != v and random.random() < p:
+                    g.add_edge(u, v, random.randint(min_weight, max_weight))
+        
+        return g
+
+    def johnson_all_pairs_shortest_paths(self):
+        """
+        Implementuje algorytm Johnsona do znajdowania najkrótszych ścieżek między wszystkimi parami wierzchołków.
+        Zwraca słownik słowników zawierający odległości między wszystkimi parami wierzchołków.
+        """
+        print("Obliczanie najkrótszych ścieżek między wszystkimi parami wierzchołków używając algorytmu Johnsona...")
+        
+        # Krok 1: Dodajemy nowy wierzchołek s z krawędziami o wadze 0 do wszystkich innych wierzchołków
+        n_original = self.n
+        self.n += 1
+        s = self.n  # nowy wierzchołek
+        
+        # Zapisujemy oryginalne krawędzie i wagi
+        original_edges = self.edges.copy()
+        original_weights = self.weights.copy()
+        
+        # Dodajemy krawędzie od s do wszystkich innych wierzchołków o wadze 0
+        for v in range(1, n_original + 1):
+            self.add_edge(s, v, 0)
+        
+        # Krok 2: Uruchamiamy Bellmana-Forda od s aby otrzymać potencjały wierzchołków
+        print("Obliczanie potencjałów wierzchołków...")
+        distances, _, has_negative_cycle = self.bellman_ford(s)
+        
+        if has_negative_cycle:
+            print("UWAGA: Wykryto cykl o ujemnej sumie wag!")
+            return None
+        
+        # Krok 3: Przewagowanie krawędzi używając potencjałów wierzchołków
+        print("Przewagowanie krawędzi...")
+        reweighted_weights = {}
+        for (u, v) in original_edges:
+            reweighted_weights[(u, v)] = original_weights[(u, v)] + distances[u] - distances[v]
+        
+        # Krok 4: Uruchamiamy Dijkstrę od każdego wierzchołka używając przewagowanych krawędzi
+        print("Obliczanie najkrótszych ścieżek od każdego wierzchołka...")
+        all_pairs_distances = {}
+        
+        # Przywracamy oryginalną strukturę grafu
+        self.n = n_original
+        self.edges = original_edges
+        self.weights = original_weights
+        
+        # Uruchamiamy Dijkstrę od każdego wierzchołka
+        for u in range(1, n_original + 1):
+            # Inicjalizacja odległości dla tego źródła
+            distances = {v: float('inf') for v in range(1, n_original + 1)}
+            distances[u] = 0
+            
+            # Kolejka priorytetowa dla Dijkstry
+            pq = [(0, u)]
+            visited = set()
+            
+            while pq:
+                dist, v = heapq.heappop(pq)
+                if v in visited:
+                    continue
+                visited.add(v)
+                
+                # Przetwarzanie sąsiadów
+                for w in range(1, n_original + 1):
+                    if (v, w) in reweighted_weights:
+                        new_dist = dist + reweighted_weights[(v, w)]
+                        if new_dist < distances[w]:
+                            distances[w] = new_dist
+                            heapq.heappush(pq, (new_dist, w))
+            
+            # Dostosowanie odległości z powrotem używając potencjałów wierzchołków
+            all_pairs_distances[u] = {
+                v: distances[v] - distances[u] + distances[v]
+                for v in range(1, n_original + 1)
+            }
+        
+        return all_pairs_distances
+
+    def print_all_pairs_distances(self):
+        """
+        Wyświetla najkrótsze ścieżki między wszystkimi parami wierzchołków w sformatowany sposób
+        """
+        distances = self.johnson_all_pairs_shortest_paths()
+        if distances is None:
+            return
+        
+        print("\nMacierz odległości między wszystkimi parami wierzchołków:")
+        print("   ", end="")
+        for v in range(1, self.n + 1):
+            print(f"{v:4}", end="")
+        print("\n" + "-" * (4 * (self.n + 1)))
+        
+        for u in range(1, self.n + 1):
+            print(f"{u:2} |", end="")
+            for v in range(1, self.n + 1):
+                dist = distances[u][v]
+                if dist == float('inf'):
+                    print(" inf", end="")
+                else:
+                    print(f"{dist:4}", end="")
+            print()
