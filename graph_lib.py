@@ -3,6 +3,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import heapq
 from collections import defaultdict
+from queue import Queue
 
 
 class Graph:
@@ -1290,3 +1291,232 @@ class WeightedDirectedGraph(DirectedGraph):
                 else:
                     print(f"{dist:4}", end="")
             print()
+
+class FlowNetwork(WeightedDirectedGraph):
+    def __init__(self, n):
+        super().__init__(n)
+        self.nodes = []
+        self.layers = []
+        self.flow = {}
+    
+    def has_edge(self, u, v):
+        if (u, v) in self.edges or (v, u) in self.edges:
+            return True
+        return False
+
+
+    @staticmethod
+    def random_flow_network(N=4, min_cap=1, max_cap=10):
+        """
+        Generuje losową sieć przepływ
+        Zwraca (sieć przepływu)
+        """
+        G = FlowNetwork(N+2)
+
+        # Źródło i ujście
+        source = 's'
+        sink = 't'
+        G.nodes.append(source)
+        G.nodes.append(sink)
+
+        # Tworzenie warstw
+        for i in range(1, N + 1):
+            num_nodes = random.randint(2, N)
+            layer_nodes = [f"L{i}_{j}" for j in range(num_nodes)]
+            G.layers.append(layer_nodes)
+            for node in layer_nodes:
+                G.nodes.append(node)
+
+        G.layers = [[source]] + G.layers + [[sink]]
+
+        # Tworzenie krawędzi między warstwami
+        for i in range(len(G.layers) - 1):
+            current = G.layers[i]
+            next_layer = G.layers[i + 1]
+
+            # Każdy wierzchołek musi mieć przynajmniej jedno wyjście
+            for u in current:
+                v = random.choice(next_layer)
+                G.add_edge(u, v, random.randint(min_cap, max_cap))
+
+            # Każdy wierzchołek musi mieć przynajmniej jedno wejście
+            for v in next_layer:
+                if not any(G.has_edge(u, v) for u in current):
+                    u = random.choice(current)
+                    G.add_edge(u, v, random.randint(min_cap, max_cap))
+
+        # Dodawanie 2N dodatkowych krawędzi
+        additional_edges = 0
+        while additional_edges < 2 * N:
+            u = random.choice(G.nodes)
+            v = random.choice(G.nodes)
+
+            if u == v:
+                continue
+            if G.has_edge(u, v):
+                continue
+            if v == source or u == sink:
+                continue
+
+            G.add_edge(u, v, random.randint(min_cap, max_cap))
+            additional_edges += 1
+
+        # Zerowanie przepływu
+        for (u, v) in G.edges:
+            G.flow[(u, v)] = 0
+
+        return G
+    
+    @staticmethod
+    def residual_flow_network(G):
+        """
+        Generuje sieć rezydualną na podstawie sieci przepływowej
+        Zwraca (sieć przepływu)
+        """
+        Gf = FlowNetwork(G.n)
+        Gf.nodes = G.nodes
+
+
+        for u in G.nodes:
+            for v in G.nodes:
+                if u != v:
+                    if (u, v) in G.edges:
+                        # dodawanie krawędzi jeżeli (u, v) należy do sieci przepływowej
+                        Gf.add_edge(u, v, G.weights[(u, v)] - G.flow[(u, v)])
+                    elif (v, u) in G.edges:
+                        # dodawanie krawędzi jeżeli (v, u) należy do sieci przepływowej
+                        Gf.add_edge(u, v, G.flow[(v, u)])
+
+        # usuwanie krawędzi o zerowej przepustowości rezydualnej
+        for (u, v) in list(Gf.edges):
+            if Gf.weights[(u, v)] == 0:
+                Gf.edges.discard((u, v))
+                Gf.weights.pop((u, v))
+
+        # zerowanie przepływu
+        for (u, v) in Gf.edges:
+            Gf.flow[(u, v)] = 0
+
+        return Gf
+
+    def draw_flow_network(self, is_residual = False):
+        """
+        Rysuje sieć przepływu
+        """
+        G = nx.DiGraph()
+        G.add_nodes_from(self.nodes)
+        for (u, v) in self.edges:
+            G.add_edge(u, v, weight=self.weights[(u, v)], flow=self.flow[(u, v)])
+
+        pos = {}
+        
+        for layer in range(len(self.layers)):
+            for i, node in enumerate(self.layers[layer]):
+                pos[node] = (layer, -i + random.uniform(0.5, 1))
+
+        edge_labels = {}
+        if is_residual:
+            edge_labels = {(u, v): d['weight'] for u, v, d in G.edges(data=True)}
+        else:
+            edge_labels = {(u, v): f"{d['flow']}/{d['weight']}" for u, v, d in G.edges(data=True)}
+
+        # pos = nx.circular_layout(G)
+
+        plt.figure(figsize=(12, 10))
+        nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=1500, arrows=True)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+        plt.axis('off')
+        plt.show()
+
+    def bfs(self):
+        """
+        Implementuje algorytm przeszukiwania wszerz.
+        Zwraca(najkrótsza ścieżka od źródła do ujścia - pusta jeżeli nie istnieje)
+        """
+        # inicjalizacja kolejki, tablicy odległości oraz tablicy poprzedników
+        Q = Queue()
+        Q.put('s')
+        ds = {node: -1 for node in self.nodes}
+        ds['s'] = 0
+        ps = {}
+        ps['s'] = 'o'
+
+        while not Q.empty():
+            # ściągnięcie aktualnie rozpatrywanego wierzchołka
+            v = Q.get()
+            # znalezienie wszystkich sąsiadów wierzchołka v
+            neighbours = [u for (src, u) in self.edges if src == v]
+            for u in neighbours:
+                # odwiedzanie nieodwiedzonych sąsiadów 
+                if ds[u] == -1:
+                    ds[u] = ds[v] + 1
+                    ps[u] = v
+                    Q.put(u)
+        
+        p = []
+        u = 't'
+        # zwrócenie pustej ścieżki jeżeli ujście sieci nieodwiedzone
+        if ds[u] == -1:
+            return p
+
+        # konstruowanie ścieżki na podstawie tablicy poprzedników
+        while ps[u] != 'o':
+            p.append(u)
+            u = ps[u]
+        p.append('s')
+        p = p[::-1]
+
+        path = []
+        for i in range(0, len(p)-1):
+            path.append((p[i], p[i+1]))
+
+        return path
+    
+    def min_path_residuum(self, G, p):
+        """
+        Znajduje najmniejszą przepustowość rezydualną ścieżki
+        Zwraca (najmniejsza przepustowość rezydualna)
+        """
+        cf = 11
+        for edge in p:
+            c = G.weights[edge]
+            if c < cf:
+                cf = c
+        return cf
+
+
+    def ford_fulkerson(self):
+        """
+        Implementuje algorytm Forda-Fulkersona do znajdowania maksymalnego przepływu w sieci
+        Zwraca (maksymalny przepływ)
+        """
+        # tworzenie sieci rezydualnej
+        Gf = FlowNetwork.residual_flow_network(self)
+        # znajdowanie najkrótszej ścieżki
+        p = Gf.bfs()
+        print(f"path: {p}")
+        while p != []:
+            # znajdowanie najmniejszej przepustowości rezydualnej ścieżki
+            cf = self.min_path_residuum(Gf, p)
+            for (u, v) in p:
+                if (u, v) in self.edges:
+                    # zwiększenie przepływu
+                    self.flow[(u, v)] += cf
+                else: 
+                    # kasowanie przepływu
+                    self.flow[(v, u)] -= cf
+            # aktualizacja sieci rezydualnej
+            Gf = FlowNetwork.residual_flow_network(self)
+            p = Gf.bfs()
+            print(f"path: {p}")
+
+        t_max = 0
+
+        # obliczenie maksymalnego przepływu
+        for u, v in self.edges:
+            if v == 't':
+                t_max += self.flow[(u, v)]
+        return t_max
+                
+
+
